@@ -24,7 +24,7 @@ var globalTransactionCount = 0
 
 type memStore struct {
 	data                      map[string]version.VersionManager
-	affectedKeysInTransaction map[int]operationsKeyStore
+	affectedKeysInTransaction map[int]OperationKeyStore
 	rwLock                    *sync.RWMutex
 	logger                    *logrus.Logger
 }
@@ -40,7 +40,7 @@ func NewMemStore() MemStorage {
 	return &memStore{
 		data:                      make(map[string]version.VersionManager),
 		rwLock:                    new(sync.RWMutex),
-		affectedKeysInTransaction: make(map[int]operationsKeyStore),
+		affectedKeysInTransaction: make(map[int]OperationKeyStore),
 		logger:                    logger,
 	}
 }
@@ -72,7 +72,7 @@ func (s *memStore) Delete(ctx context.Context, key string) error {
 func (s *memStore) makeMapOperationIfNotExist(txID int) {
 	_, exist := s.affectedKeysInTransaction[txID]
 	if !exist {
-		s.affectedKeysInTransaction[txID] = newOperationsKeyStore()
+		s.affectedKeysInTransaction[txID] = NewOperationsKeyStore()
 	}
 }
 

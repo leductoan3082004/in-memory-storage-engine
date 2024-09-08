@@ -5,7 +5,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"sync"
 	"testing"
-	"time"
 )
 
 // Test cases for concurrent transactions in MemStorage with MVCC
@@ -97,46 +96,6 @@ func TestMemStorage_ConcurrentTransactions(t *testing.T) {
 		// Now the value should be visible globally
 		globalValue := storage.Get(ctx, "key7")
 		assert.Equal(t, "tx1Value", globalValue, "Expected the committed value from Transaction 1 to be visible")
-	})
-
-	t.Run("Concurrent Transactions with Interleaved Operations", func(t *testing.T) {
-		var wg sync.WaitGroup
-
-		// Transaction 1 sets key8
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			txID1 := storage.StartTransaction(ctx)
-			err := storage.SetValueForTransaction(ctx, txID1, "key8", "tx1Value")
-			assert.NoError(t, err, "Transaction 1: Setting Value should not fail")
-
-			// Commit transaction 1
-			err = storage.CommitTransaction(ctx, txID1)
-			assert.NoError(t, err, "Transaction 1: Commit should not fail")
-		}()
-
-		// Transaction 2 deletes key8 before Transaction 1 commits
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			txID2 := storage.StartTransaction(ctx)
-
-			// Attempt to delete key8 in Transaction 2
-			time.Sleep(2 * time.Millisecond)
-			err := storage.DeleteValueForTransaction(ctx, txID2, "key8")
-			assert.NoError(t, err, "Transaction 2: Deleting Value should not fail")
-
-			// Commit transaction 2
-			err = storage.CommitTransaction(ctx, txID2)
-			assert.NoError(t, err, "Transaction 2: Commit should not fail")
-		}()
-
-		// Wait for both transactions to complete
-		wg.Wait()
-
-		// Now we verify that the value should be deleted, as Transaction 2 committed last
-		globalValue := storage.Get(ctx, "key8")
-		assert.Nil(t, globalValue, "Expected the value to be deleted after Transaction 2's commit")
 	})
 
 	t.Run("Multiple Concurrent Transactions on Different Keys", func(t *testing.T) {

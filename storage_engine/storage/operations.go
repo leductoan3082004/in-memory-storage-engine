@@ -11,6 +11,14 @@ const (
 	DELETE
 )
 
+type OperationKeyStore interface {
+	Get(key string) interface{}
+	Set(key string, value interface{})
+	Delete(key string) error
+	CheckIfKeyExists(key string) bool
+	GetAllOperation() *map[string]Operation
+}
+
 type Operation struct {
 	OperationType int
 	Value         interface{}
@@ -34,7 +42,7 @@ func newDeleteOperation() Operation {
 		Value:         nil,
 	}
 }
-func newOperationsKeyStore() operationsKeyStore {
+func NewOperationsKeyStore() OperationKeyStore {
 	return operationsKeyStore{
 		operationStore: make(map[string]Operation),
 		rw:             new(sync.RWMutex),
