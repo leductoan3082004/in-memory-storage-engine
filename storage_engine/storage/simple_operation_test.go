@@ -56,7 +56,7 @@ func TestMemStorage_SetGetDelete(t *testing.T) {
 			expectedGet: false,
 		},
 		{
-			name:        "Set and Get nil value",
+			name:        "Set and Get nil Value",
 			key:         "key7",
 			setValue:    nil,
 			expectedGet: nil,
@@ -86,7 +86,7 @@ func TestMemStorage_SetGetDelete(t *testing.T) {
 			expectedGet: "",
 		},
 		{
-			name:        "Set and Get zero value",
+			name:        "Set and Get zero Value",
 			key:         "key12",
 			setValue:    0,
 			expectedGet: 0,
@@ -117,7 +117,7 @@ func TestMemStorage_SetGetDelete(t *testing.T) {
 			expectDelete: appCommon.KeyDoesNotExist, // Expecting key does not exist
 		},
 		{
-			name:        "Set new value to previously deleted key",
+			name:        "Set new Value to previously deleted key",
 			key:         "key15",
 			setValue:    "newValueAfterDelete",
 			expectedGet: "newValueAfterDelete",
@@ -149,8 +149,8 @@ func TestMemStorage_SetGetDelete(t *testing.T) {
 		{
 			name:        "Set and Get nested map",
 			key:         "key20",
-			setValue:    map[string]interface{}{"outer": map[string]interface{}{"inner": "value"}},
-			expectedGet: map[string]interface{}{"outer": map[string]interface{}{"inner": "value"}},
+			setValue:    map[string]interface{}{"outer": map[string]interface{}{"inner": "Value"}},
+			expectedGet: map[string]interface{}{"outer": map[string]interface{}{"inner": "Value"}},
 		},
 	}
 

@@ -2,124 +2,118 @@ package storage
 
 import (
 	"context"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestMemStorage_TransactionMVCC(t *testing.T) {
+// Test cases for the transaction handling in MemStorage with MVCC
+func TestMemStorage_Transactions(t *testing.T) {
 	ctx := context.Background()
-	storage := NewMemStore()
+	storage := NewMemStore() // Assuming NewMemStore creates an instance of your MemStorage
 
-	txID1 := storage.StartTransaction(ctx)
+	// Test Start Transaction
+	t.Run("Start Transaction", func(t *testing.T) {
+		txID := storage.StartTransaction(ctx)
+		assert.Equal(t, 1, txID, "Expected txID to be 1 for the first transaction")
 
-	storage.Set(ctx, "key1", "initialValue")
+		txID2 := storage.StartTransaction(ctx)
+		assert.Equal(t, 2, txID2, "Expected txID to be 2 for the second transaction")
+	})
 
-	tests := []struct {
-		name              string
-		txID              int
-		key               string
-		setValue          interface{}
-		expectedGet       interface{}
-		withinTransaction bool
-		commitTransaction bool
-	}{
-		{
-			name:              "Set and Get within a transaction (txID1)",
-			txID:              txID1,
-			key:               "txKey1",
-			setValue:          "txValue1",
-			expectedGet:       "txValue1",
-			withinTransaction: true,
-			commitTransaction: true,
-		},
-		{
-			name:              "Set and Get integer within a transaction (txID1)",
-			txID:              txID1,
-			key:               "txKey2",
-			setValue:          123,
-			expectedGet:       123,
-			withinTransaction: true,
-			commitTransaction: true,
-		},
-		{
-			name:              "Set and Get nil value within a transaction (txID1)",
-			txID:              txID1,
-			key:               "txKey3",
-			setValue:          nil,
-			expectedGet:       nil,
-			withinTransaction: true,
-			commitTransaction: true,
-		},
-		{
-			name:              "Get value from before transaction (Repeatable Read)",
-			txID:              txID1,
-			key:               "key1", // Value is "initialValue"
-			expectedGet:       "initialValue",
-			withinTransaction: true,
-			commitTransaction: false, // No need to commit
-		},
-		{
-			name:              "Set new value in txID1, should not be visible in txID2 before commit",
-			txID:              txID1,
-			key:               "key4",
-			setValue:          "newValueBeforeCommit",
-			expectedGet:       nil, // Transaction 2 should not see this change before commit
-			withinTransaction: true,
-			commitTransaction: false,
-		},
-		{
-			name:              "Commit transaction txID1, now txID2 should see new value",
-			txID:              txID1,
-			key:               "key4",
-			setValue:          "newValueAfterCommit",
-			expectedGet:       "newValueAfterCommit", // After commit, it should be visible to txID2
-			withinTransaction: false,
-			commitTransaction: true,
-		},
-		{
-			name:              "Set value in txID2, should not be visible to txID1",
-			txID:              storage.StartTransaction(ctx), // Starting txID2
-			key:               "key5",
-			setValue:          "txID2Value",
-			expectedGet:       nil, // txID1 should not see this change until txID2 commits
-			withinTransaction: true,
-			commitTransaction: false,
-		},
-	}
+	// Test Set and Get within a transaction
+	t.Run("Set and Get within a transaction", func(t *testing.T) {
+		txID := storage.StartTransaction(ctx)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.withinTransaction {
-				// Test Set within a transaction
-				if tt.setValue != nil {
-					err := storage.SetValueForTransaction(ctx, tt.txID, tt.key, tt.setValue)
-					if err != nil {
-						t.Fatalf("SetValueForTransaction failed: %v", err)
-					}
-				}
+		// Set a key within a transaction
+		err := storage.SetValueForTransaction(ctx, txID, "key1", "txValue1")
+		assert.NoError(t, err, "Setting Value in transaction should not fail")
 
-				// Test Get within a transaction (before commit)
-				gotValue, err := storage.GetValueForTransaction(ctx, tt.txID, tt.key)
-				if err != nil {
-					t.Fatalf("GetValueForTransaction failed: %v", err)
-				}
-				if !reflect.DeepEqual(gotValue, tt.expectedGet) {
-					t.Errorf("Expected Get %v, got %v", tt.expectedGet, gotValue)
-				}
-			}
+		// Get the Value within the same transaction
+		value, err := storage.GetValueForTransaction(ctx, txID, "key1")
+		assert.NoError(t, err, "Getting Value in transaction should not fail")
+		assert.Equal(t, "txValue1", value, "Expected 'txValue1' within transaction")
 
-			// Test commit if needed
-			if tt.commitTransaction {
-				// Commit the transaction and check visibility
-				commitTxID := tt.txID
-				storage.C(ctx, commitTxID)
+		// The Value should not be visible globally before commit
+		globalValue := storage.Get(ctx, "key1")
+		assert.Nil(t, globalValue, "The Value should not be visible globally before commit")
+	})
 
-				// Check if the new value is now visible globally (after commit)
-				globalValue := storage.Get(ctx, tt.key)
-				if !reflect.DeepEqual(globalValue, tt.expectedGet) {
-					t.Errorf("After commit, expected %v, but got %v", tt.expectedGet, globalValue)
-				}
-			}
-		})
-	}
+	// Test Commit Transaction
+	t.Run("Commit Transaction", func(t *testing.T) {
+		txID := storage.StartTransaction(ctx)
+
+		err := storage.SetValueForTransaction(ctx, txID, "key2", "committedValue")
+		assert.NoError(t, err, "Setting Value in transaction should not fail")
+
+		err = storage.CommitTransaction(ctx, txID)
+		assert.NoError(t, err, "Committing transaction should not fail")
+
+		globalValue := storage.Get(ctx, "key2")
+		assert.Equal(t, "committedValue", globalValue, "Expected the Value to be visible globally after commit")
+	})
+
+	t.Run("Abort Transaction", func(t *testing.T) {
+		txID := storage.StartTransaction(ctx)
+
+		// Set a Value within the transaction
+		err := storage.SetValueForTransaction(ctx, txID, "key3", "abortedValue")
+		assert.NoError(t, err, "Setting Value in transaction should not fail")
+
+		// Abort the transaction
+		err = storage.AbortTransaction(ctx, txID)
+		assert.NoError(t, err, "Aborting transaction should not fail")
+
+		// The Value should not be visible globally after abort
+		globalValue := storage.Get(ctx, "key3")
+		assert.Nil(t, globalValue, "The Value should not be visible globally after abort")
+	})
+
+	// Test Repeatable Read Isolation
+	t.Run("Repeatable Read Isolation", func(t *testing.T) {
+		// Start the first transaction and set a Value
+		txID1 := storage.StartTransaction(ctx)
+		err := storage.SetValueForTransaction(ctx, txID1, "key4", "valueInTx1")
+		assert.NoError(t, err, "Setting Value in txID1 should not fail")
+
+		// Start the second transaction, which should see the initial state of the world (not txID1's changes)
+		txID2 := storage.StartTransaction(ctx)
+
+		// txID2 should not see txID1's changes before commit
+		valueInTx2, err := storage.GetValueForTransaction(ctx, txID2, "key4")
+		assert.Nil(t, valueInTx2, "txID2 should not see txID1's uncommitted changes")
+
+		// Commit the first transaction
+		err = storage.CommitTransaction(ctx, txID1)
+		assert.NoError(t, err, "Committing txID1 should not fail")
+
+		// Now, globally, the Value should be visible
+		globalValue := storage.Get(ctx, "key4")
+		assert.Equal(t, "valueInTx1", globalValue, "The Value should be visible globally after txID1 commits")
+
+		// txID2 should still not see the change due to repeatable read isolation
+		valueInTx2AfterCommit, err := storage.GetValueForTransaction(ctx, txID2, "key4")
+		assert.Nil(t, valueInTx2AfterCommit, "txID2 should not see txID1's committed changes due to repeatable read")
+	})
+
+	// Test Set, Delete, and Commit in a Transaction
+	t.Run("Set, Delete, and Commit in a Transaction", func(t *testing.T) {
+		txID := storage.StartTransaction(ctx)
+
+		// Set a Value within the transaction
+		err := storage.SetValueForTransaction(ctx, txID, "key5", "tempValue")
+		assert.NoError(t, err, "Setting Value in transaction should not fail")
+
+		// Delete the Value within the transaction
+		err = storage.DeleteValueForTransaction(ctx, txID, "key5")
+		assert.NoError(t, err, "Deleting Value in transaction should not fail")
+
+		// Commit the transaction
+		err = storage.CommitTransaction(ctx, txID)
+		assert.NoError(t, err, "Committing transaction should not fail")
+
+		// The Value should not be visible globally because it was deleted within the transaction
+		globalValue := storage.Get(ctx, "key5")
+		assert.Nil(t, globalValue, "The Value should not exist globally after deletion in a transaction and commit")
+	})
 }

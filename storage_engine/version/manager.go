@@ -11,7 +11,7 @@ type VersionManager interface {
 	Set(ctx context.Context, value interface{}, txID int)
 	Delete(ctx context.Context, txID int) error
 	GetCommitted(ctx context.Context) interface{}
-	GetValueForTransaction(ctx context.Context, txID int) interface{}
+	GetValueBeforeTransaction(ctx context.Context, txID int) interface{}
 	GetLatestVersionForKey(ctx context.Context) (int, error)
 }
 
@@ -64,7 +64,7 @@ func (manager *versionManager) GetCommitted(ctx context.Context) interface{} {
 	return manager.getCommitedInternal(ctx)
 }
 
-func (manager *versionManager) GetValueForTransaction(ctx context.Context, txID int) interface{} {
+func (manager *versionManager) GetValueBeforeTransaction(ctx context.Context, txID int) interface{} {
 	manager.rwLock.RLock()
 	defer manager.rwLock.RUnlock()
 	for i := len(manager.versions) - 1; i >= 0; i-- {
