@@ -1,4 +1,4 @@
-package storage
+package operation
 
 import (
 	"in-memory-storage-engine/appCommon"
@@ -11,7 +11,7 @@ const (
 	DELETE
 )
 
-type OperationKeyStore interface {
+type KeyStore interface {
 	Get(key string) interface{}
 	Set(key string, value interface{})
 	Delete(key string) error
@@ -42,7 +42,7 @@ func newDeleteOperation() Operation {
 		Value:         nil,
 	}
 }
-func NewOperationsKeyStore() OperationKeyStore {
+func NewOperationsKeyStore() KeyStore {
 	return operationsKeyStore{
 		operationStore: make(map[string]Operation),
 		rw:             new(sync.RWMutex),

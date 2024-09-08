@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/sirupsen/logrus"
 	"in-memory-storage-engine/appCommon"
+	"in-memory-storage-engine/storage_engine/operation"
 	"in-memory-storage-engine/storage_engine/version"
 	"sync"
 )
@@ -24,7 +25,7 @@ var globalTransactionCount = 0
 
 type memStore struct {
 	data                      map[string]version.VersionManager
-	affectedKeysInTransaction map[int]OperationKeyStore
+	affectedKeysInTransaction map[int]operation.KeyStore
 	rwLock                    *sync.RWMutex
 	logger                    *logrus.Logger
 }
@@ -40,7 +41,7 @@ func NewMemStore() MemStorage {
 	return &memStore{
 		data:                      make(map[string]version.VersionManager),
 		rwLock:                    new(sync.RWMutex),
-		affectedKeysInTransaction: make(map[int]OperationKeyStore),
+		affectedKeysInTransaction: make(map[int]operation.KeyStore),
 		logger:                    logger,
 	}
 }
@@ -72,7 +73,7 @@ func (s *memStore) Delete(ctx context.Context, key string) error {
 func (s *memStore) makeMapOperationIfNotExist(txID int) {
 	_, exist := s.affectedKeysInTransaction[txID]
 	if !exist {
-		s.affectedKeysInTransaction[txID] = NewOperationsKeyStore()
+		s.affectedKeysInTransaction[txID] = operation.NewOperationsKeyStore()
 	}
 }
 
@@ -90,10 +91,13 @@ func (s *memStore) AbortTransaction(ctx context.Context, txID int) error {
 		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
 		return appCommon.NewTxIDDoesNotExistError(txID)
 	}
+
+	s.logger.Infof("Aborting transaction %d", txID)
 	s.rwLock.Lock()
 	defer s.rwLock.Unlock()
 
 	delete(s.affectedKeysInTransaction, txID)
+	s.logger.Infof("Aborted transaction %d successfully", txID)
 	return nil
 }
 
@@ -146,7 +150,7 @@ func (s *memStore) SetValueForTransaction(ctx context.Context, txID int, key str
 
 	s.affectedKeysInTransaction[txID].Set(key, value)
 
-	s.logger.Infof("Setting key %s with Value %v", key, value)
+	s.logger.Infof("Setting key %s with Value %v for tracsaction %d", key, value, txID)
 	return nil
 }
 

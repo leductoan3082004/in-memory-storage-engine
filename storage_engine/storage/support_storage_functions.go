@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"in-memory-storage-engine/appCommon"
+	"in-memory-storage-engine/storage_engine/operation"
 	"in-memory-storage-engine/storage_engine/version"
 )
 
@@ -51,7 +52,7 @@ func (s *memStore) deleteInternal(ctx context.Context, key string, txID int) err
 }
 
 func (s *memStore) checkIfTransactionCanBeCommited(ctx context.Context, txID int) error {
-	for key, _ := range s.affectedKeysInTransaction[txID].operationStore {
+	for key, _ := range *s.affectedKeysInTransaction[txID].GetAllOperation() {
 		if s.checkKeyExist(key) {
 			keyTxID, err := s.data[key].GetLatestVersionForKey(ctx)
 			if err != nil {
@@ -68,12 +69,12 @@ func (s *memStore) checkIfTransactionCanBeCommited(ctx context.Context, txID int
 
 func (s *memStore) applyTransaction(ctx context.Context, txID int) error {
 	increaseGlobalTransactionCount()
-	for key, value := range s.affectedKeysInTransaction[txID].operationStore {
+	for key, value := range *s.affectedKeysInTransaction[txID].GetAllOperation() {
 		switch value.OperationType {
-		case DELETE:
+		case operation.DELETE:
 			_ = s.deleteInternal(ctx, key, globalTransactionCount)
 			continue
-		case SET:
+		case operation.SET:
 			s.setInternal(ctx, key, value.Value, globalTransactionCount)
 			continue
 		}
