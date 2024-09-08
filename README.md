@@ -16,6 +16,18 @@
 - How to test that this engine runs correctly or not ?
 - Code structure.
 - Documentation.
+- Absolutely consistency
+- High availability ?
+
+
+### Main functions
+- Get (key): value
+- Set (key)
+- Delete(key)
+- Transaction 
+  - Begin
+  - Commit
+  - Rollback
 
 ### Some first assumptions
 
@@ -24,4 +36,12 @@
 ### Some first approaches
 - Key value store &rArr; use a map for this 
 - Concurrency handling will need a RWLock (Golang already supported this), instead locking for all data, we just need to lock only which keys affected.
-- For MVCC and repeated reads, I am considering this (maybe use a version id for this ? must be considered more).
+
+- #### For MVCC and repeated reads, the transaction will follow these steps:
+  - Each key is assigned with a version number (this number will increase over time to track the latest version of the key). 
+  - Assume the transaction will need to query and update key1, key2, key3, ..., we will create a snapshot of these key to use only in the transaction.
+  - Then we will use these values to execute the transaction, so other transactions will still see the committed values
+  - At the time we need to commit, just gain the lock for commit (for this solution I think we can just use one lock for all keys because of deadlock). So we can guarantee that only one transaction commit at a time, but how to know that this transaction is valid ? we just need to compare the version number of the keys in the snapshot and keys that have been committed, if the version matched then the transaction is valid, else the data that this transaction read before is stale (this mean there is another transaction that have committed before).
+  - So users may feel the UX is bad if there are multiple transactions happen at same time (because of the errors).
+  - We need to add a mechanism to automatically retry the transaction (if it is stale). Otherwise, if this transaction fail because of some condition checking, we just need to fail it.
+    
