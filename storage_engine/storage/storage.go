@@ -2,7 +2,8 @@ package storage
 
 import (
 	"context"
-	"in-memory-storage-engine/storage_engine/appCommon"
+	"github.com/sirupsen/logrus"
+	"in-memory-storage-engine/appCommon"
 	"in-memory-storage-engine/storage_engine/version"
 	"sync"
 )
@@ -23,13 +24,19 @@ type memStore struct {
 	data                      map[string]version.VersionManager
 	affectedKeysInTransaction map[int]operationsKeyStore
 	rwLock                    *sync.RWMutex
+	logger                    *logrus.Logger
 }
 
 func NewMemStore() MemStorage {
+	logger := logrus.New()
+	logger.SetFormatter(&logrus.JSONFormatter{})
+	logger.SetLevel(logrus.InfoLevel)
+
 	return &memStore{
 		data:                      make(map[string]version.VersionManager),
 		rwLock:                    new(sync.RWMutex),
 		affectedKeysInTransaction: make(map[int]operationsKeyStore),
+		logger:                    logger,
 	}
 }
 
@@ -45,6 +52,7 @@ func (s *memStore) checkKeyExist(key string) bool {
 func (s *memStore) checkKeyExistInTransaction(txID int, key string) (bool, error) {
 	_, exist := s.affectedKeysInTransaction[txID]
 	if !exist {
+		s.logger.Errorln(appCommon.NewTxIDDoesNotExistError(txID))
 		return false, appCommon.NewTxIDDoesNotExistError(txID)
 	}
 	_, exist = s.affectedKeysInTransaction[txID].operationStore[key]
@@ -82,6 +90,7 @@ func (s *memStore) Delete(ctx context.Context, key string) error {
 	s.rwLock.Lock()
 	defer s.rwLock.Unlock()
 	if !s.checkKeyExist(key) {
+		s.logger.WithContext(ctx).Errorln(appCommon.KeyDoesNotExist)
 		return appCommon.KeyDoesNotExist
 	}
 	increaseGlobalTransactionCount()
@@ -105,8 +114,71 @@ func (s *memStore) StartTransaction(ctx context.Context) int {
 	return globalTransactionCount
 }
 
+func (s *memStore) AbortTransaction(ctx context.Context, txID int) error {
+	if !s.checkTxExist(txID) {
+		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
+		return appCommon.NewTxIDDoesNotExistError(txID)
+	}
+	s.affectedKeysInTransaction[txID].rw.Lock()
+	defer s.affectedKeysInTransaction[txID].rw.Unlock()
+	delete(s.affectedKeysInTransaction, txID)
+	return nil
+}
+
+func (s *memStore) checkIfTransactionCanBeCommited(ctx context.Context, txID int) error {
+	for key, _ := range s.affectedKeysInTransaction[txID].operationStore {
+		if s.checkKeyExist(key) {
+			keyTxID, err := s.data[key].GetLatestVersionForKey(ctx)
+			if err != nil {
+				s.logger.WithContext(ctx).Errorln(err)
+				return err
+			}
+			if keyTxID > txID {
+				return appCommon.NewTxIDCanNotBeCommited(txID)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *memStore) applyTransaction(ctx context.Context, txID int) error {
+	for key, value := range s.affectedKeysInTransaction[txID].operationStore {
+		switch value.value {
+		case DELETE:
+			_ = s.data[key].Delete(ctx, txID)
+			continue
+		case SET:
+			s.data[key].Set(ctx, value, txID)
+			continue
+		case GET:
+
+		}
+	}
+	return nil
+}
+
+func (s *memStore) CommitTransaction(ctx context.Context, txID int) error {
+	if !s.checkTxExist(txID) {
+		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
+		return appCommon.NewTxIDDoesNotExistError(txID)
+	}
+	s.rwLock.Lock()
+	defer s.rwLock.Unlock()
+
+	if err := s.checkIfTransactionCanBeCommited(ctx, txID); err != nil {
+		s.logger.WithContext(ctx).Errorln(err)
+		return err
+	}
+	if err := s.applyTransaction(ctx, txID); err != nil {
+		s.logger.WithContext(ctx).Errorln(err)
+		return err
+	}
+	return nil
+}
+
 func (s *memStore) GetValueForTransaction(ctx context.Context, txID int, key string) (interface{}, error) {
 	if !s.checkTxExist(txID) {
+		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
 		return nil, appCommon.NewTxIDDoesNotExistError(txID)
 	}
 
@@ -115,6 +187,7 @@ func (s *memStore) GetValueForTransaction(ctx context.Context, txID int, key str
 
 	exist, err := s.checkKeyExistInTransaction(txID, key)
 	if err != nil {
+		s.logger.WithContext(ctx).Errorln(err)
 		return nil, err
 	}
 
@@ -126,6 +199,7 @@ func (s *memStore) GetValueForTransaction(ctx context.Context, txID int, key str
 
 func (s *memStore) SetValueForTransaction(ctx context.Context, txID int, key string, value interface{}) error {
 	if !s.checkTxExist(txID) {
+		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
 		return appCommon.NewTxIDDoesNotExistError(txID)
 	}
 
@@ -138,6 +212,7 @@ func (s *memStore) SetValueForTransaction(ctx context.Context, txID int, key str
 
 func (s *memStore) DeleteValueForTransaction(ctx context.Context, txID int, key string) error {
 	if !s.checkTxExist(txID) {
+		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
 		return appCommon.NewTxIDDoesNotExistError(txID)
 	}
 

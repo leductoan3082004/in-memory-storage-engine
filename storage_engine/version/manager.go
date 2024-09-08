@@ -2,7 +2,7 @@ package version
 
 import (
 	"context"
-	"in-memory-storage-engine/storage_engine/appCommon"
+	"in-memory-storage-engine/appCommon"
 	"sync"
 )
 
@@ -12,6 +12,7 @@ type VersionManager interface {
 	Delete(ctx context.Context, txID int) error
 	GetCommitted(ctx context.Context) interface{}
 	GetValueForTransaction(ctx context.Context, txID int) interface{}
+	GetLatestVersionForKey(ctx context.Context) (int, error)
 }
 
 type versionManager struct {
@@ -76,4 +77,13 @@ func (manager *versionManager) GetValueForTransaction(ctx context.Context, txID 
 		}
 	}
 	return nil
+}
+
+func (manager *versionManager) GetLatestVersionForKey(ctx context.Context) (int, error) {
+	manager.rwLock.RLock()
+	defer manager.rwLock.RUnlock()
+	if len(manager.versions) == 0 {
+		return 0, appCommon.KeyDoesNotExist
+	}
+	return manager.versions[len(manager.versions)-1].txID, nil
 }
