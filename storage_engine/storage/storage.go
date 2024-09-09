@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"github.com/sirupsen/logrus"
 	"in-memory-storage-engine/appCommon"
 	"in-memory-storage-engine/storage_engine/operation"
@@ -19,6 +20,7 @@ type MemStorage interface {
 	DeleteValueForTransaction(ctx context.Context, txID int, key string) error
 	AbortTransaction(ctx context.Context, txID int) error
 	CommitTransaction(ctx context.Context, txID int) error
+	RemoveOldVersionTransaction(ctx context.Context) error
 }
 
 var globalTransactionCount = 0
@@ -179,6 +181,20 @@ func (s *memStore) DeleteValueForTransaction(ctx context.Context, txID int, key 
 	if err := s.affectedKeysInTransaction[txID].Delete(key); err != nil {
 		s.logger.WithContext(ctx).Errorln(err)
 		return err
+	}
+
+	return nil
+}
+
+func (s *memStore) RemoveOldVersionTransaction(ctx context.Context) error {
+	s.rwLock.RLock()
+	defer s.rwLock.RUnlock()
+
+	for key, _ := range s.data {
+		if err := s.data[key].RemoveOldVersion(ctx); err != nil {
+			s.logger.WithContext(ctx).Errorln(err)
+			return fmt.Errorf("there are some errors when running clean up process: %w", err)
+		}
 	}
 
 	return nil

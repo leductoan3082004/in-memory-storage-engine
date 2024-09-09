@@ -4,6 +4,7 @@ import (
 	"context"
 	"in-memory-storage-engine/appCommon"
 	"sync"
+	"time"
 )
 
 type VersionManager interface {
@@ -13,6 +14,7 @@ type VersionManager interface {
 	GetCommitted(ctx context.Context) interface{}
 	GetValueBeforeTransaction(ctx context.Context, txID int) interface{}
 	GetLatestVersionForKey(ctx context.Context) (int, error)
+	RemoveOldVersion(ctx context.Context) error
 }
 
 type versionManager struct {
@@ -86,4 +88,18 @@ func (manager *versionManager) GetLatestVersionForKey(ctx context.Context) (int,
 		return 0, appCommon.KeyDoesNotExist
 	}
 	return manager.versions[len(manager.versions)-1].txID, nil
+}
+
+func (manager *versionManager) RemoveOldVersion(ctx context.Context) error {
+	manager.rwLock.Lock()
+	defer manager.rwLock.Unlock()
+
+	current := time.Now()
+	for i := range manager.versions {
+		if current.Sub(manager.versions[i].createdAt) < appCommon.TransactionTimeout {
+			manager.versions = manager.versions[i:]
+		}
+	}
+
+	return nil
 }
