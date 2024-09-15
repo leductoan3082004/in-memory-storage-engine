@@ -56,3 +56,8 @@
     - If key **A** does not exist in our isolated snapshot yet, we will check if it exists in storage. If yes just create a key with null value then mark it invisible, else we can ignore it or throw an error for users.
 - Now come to the **ABORT**, we just need to remove the transaction along with its snapshot.
 - With **COMMIT**, we will iterate through the key, value snapshot and apply the changes to the main storage. We need to check if the latest version of each key is smaller than the *transaction id* (because we are using *transaction id* for versioning). If one of the keys has the latest version greater than current *transaction id*, this means we can not commit this transaction, because there is another transaction that has committed before that lead to the transaction number increases. At this time we can throw the error to user, and user may make the transaction from the beginning. But there is another approach, we will store all the operations of one transaction and retry it several times before forcing user make it again.
+
+
+### For interface ###
+- We can make the frontend for user (maybe using the reactjs).
+- We will a CLI for user to interact with our storage using the terminal.
