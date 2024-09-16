@@ -26,7 +26,7 @@ type Operation struct {
 
 type operationsKeyStore struct {
 	operationStore map[string]Operation
-	rw             *sync.RWMutex
+	writer         *sync.Mutex
 }
 
 func newSetOperation(value interface{}) Operation {
@@ -45,13 +45,11 @@ func newDeleteOperation() Operation {
 func NewOperationsKeyStore() KeyStore {
 	return operationsKeyStore{
 		operationStore: make(map[string]Operation),
-		rw:             new(sync.RWMutex),
+		writer:         new(sync.Mutex),
 	}
 }
 
 func (s operationsKeyStore) CheckIfKeyExists(key string) bool {
-	s.rw.RLock()
-	defer s.rw.RUnlock()
 	_, ok := s.operationStore[key]
 	return ok
 }
@@ -70,18 +68,20 @@ func (s operationsKeyStore) newSetOperation(value interface{}) Operation {
 }
 
 func (s operationsKeyStore) Delete(key string) error {
+	s.writer.Lock()
+	defer s.writer.Unlock()
+
 	if !s.CheckIfKeyExists(key) {
 		return appCommon.KeyDoesNotExist
 	}
-	s.rw.Lock()
-	defer s.rw.Unlock()
+
 	s.operationStore[key] = newDeleteOperation()
 	return nil
 }
 
 func (s operationsKeyStore) Set(key string, value interface{}) {
-	s.rw.Lock()
-	defer s.rw.Unlock()
+	s.writer.Lock()
+	defer s.writer.Unlock()
 	s.operationStore[key] = newSetOperation(value)
 }
 
@@ -90,8 +90,6 @@ func (s operationsKeyStore) GetAllOperation() *map[string]Operation {
 }
 
 func (s operationsKeyStore) Get(key string) interface{} {
-	s.rw.RLock()
-	defer s.rw.RUnlock()
 	operation, exist := s.operationStore[key]
 	if !exist || operation.OperationType == DELETE {
 		return nil
