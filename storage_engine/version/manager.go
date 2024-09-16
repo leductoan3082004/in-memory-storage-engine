@@ -18,14 +18,14 @@ type VersionManager interface {
 }
 
 type versionManager struct {
-	rwLock   *sync.RWMutex
+	writer   *sync.Mutex
 	versions valueVersions // contain only committed versions
 }
 
 func NewValueVersionManager() VersionManager {
 	return &versionManager{
 		versions: valueVersions{},
-		rwLock:   new(sync.RWMutex),
+		writer:   new(sync.Mutex),
 	}
 }
 
@@ -34,8 +34,8 @@ func (manager *versionManager) AddNewVersion(version *valueVersion) {
 }
 
 func (manager *versionManager) Set(ctx context.Context, value interface{}, txID int) {
-	manager.rwLock.Lock()
-	defer manager.rwLock.Unlock()
+	manager.writer.Lock()
+	defer manager.writer.Unlock()
 	manager.AddNewVersion(newSetValueVersion(value, txID))
 }
 
@@ -48,8 +48,8 @@ func (manager *versionManager) getCommitedInternal(ctx context.Context) interfac
 }
 
 func (manager *versionManager) Delete(ctx context.Context, txID int) error {
-	manager.rwLock.Lock()
-	defer manager.rwLock.Unlock()
+	manager.writer.Lock()
+	defer manager.writer.Unlock()
 
 	if manager.getCommitedInternal(ctx) != nil {
 		manager.AddNewVersion(newDeleteValueVersion(txID))
@@ -60,15 +60,10 @@ func (manager *versionManager) Delete(ctx context.Context, txID int) error {
 }
 
 func (manager *versionManager) GetCommitted(ctx context.Context) interface{} {
-	manager.rwLock.RLock()
-	defer manager.rwLock.RUnlock()
-
 	return manager.getCommitedInternal(ctx)
 }
 
 func (manager *versionManager) GetValueBeforeTransaction(ctx context.Context, txID int) interface{} {
-	manager.rwLock.RLock()
-	defer manager.rwLock.RUnlock()
 	for i := len(manager.versions) - 1; i >= 0; i-- {
 		if manager.versions[i].txID <= txID {
 			if manager.versions[i].isVisible {
@@ -82,8 +77,6 @@ func (manager *versionManager) GetValueBeforeTransaction(ctx context.Context, tx
 }
 
 func (manager *versionManager) GetLatestVersionForKey(ctx context.Context) (int, error) {
-	manager.rwLock.RLock()
-	defer manager.rwLock.RUnlock()
 	if len(manager.versions) == 0 {
 		return 0, appCommon.KeyDoesNotExist
 	}
@@ -91,8 +84,8 @@ func (manager *versionManager) GetLatestVersionForKey(ctx context.Context) (int,
 }
 
 func (manager *versionManager) RemoveOldVersion(ctx context.Context) error {
-	manager.rwLock.Lock()
-	defer manager.rwLock.Unlock()
+	manager.writer.Lock()
+	defer manager.writer.Unlock()
 
 	current := time.Now()
 	for i := range manager.versions {

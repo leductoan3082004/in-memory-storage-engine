@@ -28,7 +28,7 @@ var globalTransactionCount = 0
 type memStore struct {
 	data                      map[string]version.VersionManager
 	affectedKeysInTransaction map[int]operation.KeyStore
-	rwLock                    *sync.RWMutex
+	writer                    *sync.Mutex
 	logger                    *logrus.Logger
 }
 
@@ -42,22 +42,20 @@ func NewMemStore() MemStorage {
 
 	return &memStore{
 		data:                      make(map[string]version.VersionManager),
-		rwLock:                    new(sync.RWMutex),
+		writer:                    new(sync.Mutex),
 		affectedKeysInTransaction: make(map[int]operation.KeyStore),
 		logger:                    logger,
 	}
 }
 
 func (s *memStore) Set(ctx context.Context, key string, value interface{}) {
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
+	s.writer.Lock()
+	defer s.writer.Unlock()
 	increaseGlobalTransactionCount()
 	s.setInternal(ctx, key, value, globalTransactionCount)
 }
 
 func (s *memStore) Get(ctx context.Context, key string) interface{} {
-	s.rwLock.RLock()
-	defer s.rwLock.RUnlock()
 	if !s.checkKeyExist(key) {
 		return nil
 	}
@@ -65,8 +63,8 @@ func (s *memStore) Get(ctx context.Context, key string) interface{} {
 }
 
 func (s *memStore) Delete(ctx context.Context, key string) error {
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
+	s.writer.Lock()
+	defer s.writer.Unlock()
 	increaseGlobalTransactionCount()
 
 	return s.deleteInternal(ctx, key, globalTransactionCount)
@@ -80,8 +78,8 @@ func (s *memStore) makeMapOperationIfNotExist(txID int) {
 }
 
 func (s *memStore) StartTransaction(ctx context.Context) int {
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
+	s.writer.Lock()
+	defer s.writer.Unlock()
 	increaseGlobalTransactionCount()
 	s.makeMapOperationIfNotExist(globalTransactionCount)
 	s.logger.Infof("Transaction %d starts", globalTransactionCount)
@@ -89,14 +87,15 @@ func (s *memStore) StartTransaction(ctx context.Context) int {
 }
 
 func (s *memStore) AbortTransaction(ctx context.Context, txID int) error {
-	if !s.checkTxExistWithLock(txID) {
+	s.writer.Lock()
+	defer s.writer.Unlock()
+
+	if !s.checkTxExist(txID) {
 		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
 		return appCommon.NewTxIDDoesNotExistError(txID)
 	}
 
 	s.logger.Infof("Aborting transaction %d", txID)
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
 
 	delete(s.affectedKeysInTransaction, txID)
 	s.logger.Infof("Aborted transaction %d successfully", txID)
@@ -104,12 +103,13 @@ func (s *memStore) AbortTransaction(ctx context.Context, txID int) error {
 }
 
 func (s *memStore) CommitTransaction(ctx context.Context, txID int) error {
-	if !s.checkTxExistWithLock(txID) {
+	s.writer.Lock()
+	defer s.writer.Unlock()
+
+	if !s.checkTxExist(txID) {
 		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
 		return appCommon.NewTxIDDoesNotExistError(txID)
 	}
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
 
 	s.logger.Infof("Transaction %d is being commited...", txID)
 	if err := s.checkIfTransactionCanBeCommited(ctx, txID); err != nil {
@@ -127,7 +127,7 @@ func (s *memStore) CommitTransaction(ctx context.Context, txID int) error {
 }
 
 func (s *memStore) GetValueForTransaction(ctx context.Context, txID int, key string) (interface{}, error) {
-	if !s.checkTxExistWithLock(txID) {
+	if !s.checkTxExist(txID) {
 		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
 		return nil, appCommon.NewTxIDDoesNotExistError(txID)
 	}
@@ -145,7 +145,7 @@ func (s *memStore) GetValueForTransaction(ctx context.Context, txID int, key str
 }
 
 func (s *memStore) SetValueForTransaction(ctx context.Context, txID int, key string, value interface{}) error {
-	if !s.checkTxExistWithLock(txID) {
+	if !s.checkTxExist(txID) {
 		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
 		return appCommon.NewTxIDDoesNotExistError(txID)
 	}
@@ -157,7 +157,7 @@ func (s *memStore) SetValueForTransaction(ctx context.Context, txID int, key str
 }
 
 func (s *memStore) DeleteValueForTransaction(ctx context.Context, txID int, key string) error {
-	if !s.checkTxExistWithLock(txID) {
+	if !s.checkTxExist(txID) {
 		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
 		return appCommon.NewTxIDDoesNotExistError(txID)
 	}
@@ -187,8 +187,8 @@ func (s *memStore) DeleteValueForTransaction(ctx context.Context, txID int, key 
 }
 
 func (s *memStore) RemoveOldVersionTransaction(ctx context.Context) error {
-	s.rwLock.RLock()
-	defer s.rwLock.RUnlock()
+	s.writer.Lock()
+	defer s.writer.Unlock()
 
 	for key, _ := range s.data {
 		if err := s.data[key].RemoveOldVersion(ctx); err != nil {

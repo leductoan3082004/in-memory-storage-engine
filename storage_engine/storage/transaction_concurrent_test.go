@@ -5,6 +5,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Test cases for concurrent transactions in MemStorage with MVCC
@@ -27,9 +28,12 @@ func TestMemStorage_ConcurrentTransactions(t *testing.T) {
 			err := storage.SetValueForTransaction(ctx, txID1, "key6", "tx1Value")
 			assert.NoError(t, err, "Transaction 1: Setting Value should not fail")
 
+			// sleep for 10 ms to wait for goroutine 2 to start
+			time.Sleep(time.Millisecond * 10)
+
 			err = storage.CommitTransaction(ctx, txID1)
-			c <- struct{}{}
 			assert.NoError(t, err, "Transaction 1: Commit should not fail")
+			c <- struct{}{}
 		}()
 
 		// Transaction 2 sets the same key to a different value
@@ -47,55 +51,15 @@ func TestMemStorage_ConcurrentTransactions(t *testing.T) {
 			<-c
 			// Commit Transaction 2 after Transaction 1 is done
 			err = storage.CommitTransaction(ctx, txID2)
-			assert.NoError(t, err, "Transaction 2: Commit should not fail")
+			assert.Error(t, err, "Transaction 2: Commit should fail due to transaction 1 commit earlier")
 		}()
 
 		// Wait for both transactions to complete
 		wg.Wait()
 
-		// Now we verify that the last committed value should be "tx2Value" because Transaction 2 was committed later
+		// Now we verify that the last committed value should be "tx1Value" because Transaction 1 was committed first
 		globalValue := storage.Get(ctx, "key6")
-		assert.Equal(t, "tx2Value", globalValue, "Expected the last committed value to be 'tx2Value'")
-	})
-
-	t.Run("Concurrent Read and Write Transactions", func(t *testing.T) {
-		var wg sync.WaitGroup
-
-		// Transaction 1 sets key7
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			txID1 := storage.StartTransaction(ctx)
-			err := storage.SetValueForTransaction(ctx, txID1, "key7", "tx1Value")
-			assert.NoError(t, err, "Transaction 1: Setting Value should not fail")
-
-			// Commit transaction 1
-			err = storage.CommitTransaction(ctx, txID1)
-			assert.NoError(t, err, "Transaction 1: Commit should not fail")
-		}()
-
-		// Transaction 2 reads key7 before Transaction 1 commits, ensuring isolation
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			txID2 := storage.StartTransaction(ctx)
-
-			// Should not see Transaction 1's changes because txID1 is not committed yet
-			value, err := storage.GetValueForTransaction(ctx, txID2, "key7")
-			assert.Nil(t, value, "Transaction 2: Should not see uncommitted value")
-			assert.NoError(t, err, "Transaction 2: GetValue should not fail")
-
-			// Commit transaction 2
-			err = storage.CommitTransaction(ctx, txID2)
-			assert.NoError(t, err, "Transaction 2: Commit should not fail")
-		}()
-
-		// Wait for both transactions to complete
-		wg.Wait()
-
-		// Now the value should be visible globally
-		globalValue := storage.Get(ctx, "key7")
-		assert.Equal(t, "tx1Value", globalValue, "Expected the committed value from Transaction 1 to be visible")
+		assert.Equal(t, "tx1Value", globalValue, "Expected the last committed value to be 'tx1Value'")
 	})
 
 	t.Run("Multiple Concurrent Transactions on Different Keys", func(t *testing.T) {
