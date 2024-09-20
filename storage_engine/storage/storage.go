@@ -11,16 +11,11 @@ import (
 )
 
 type MemStorage interface {
-	Set(ctx context.Context, key string, value interface{})
-	Get(ctx context.Context, key string) interface{}
+	Set(ctx context.Context, key string, value interface{}) error
+	Get(ctx context.Context, key string) (interface{}, error)
 	Delete(ctx context.Context, key string) error
-	StartTransaction(ctx context.Context) int
-	GetValueForTransaction(ctx context.Context, txID int, key string) (interface{}, error)
-	SetValueForTransaction(ctx context.Context, txID int, key string, value interface{}) error
-	DeleteValueForTransaction(ctx context.Context, txID int, key string) error
-	AbortTransaction(ctx context.Context, txID int) error
-	CommitTransaction(ctx context.Context, txID int) error
 	RemoveOldVersionTransaction(ctx context.Context) error
+	Tx() MemTx
 }
 
 var globalTransactionCount = 0
@@ -48,18 +43,32 @@ func NewMemStore() MemStorage {
 	}
 }
 
-func (s *memStore) Set(ctx context.Context, key string, value interface{}) {
+func (s *memStore) Tx() MemTx {
+	s.writer.Lock()
+	defer s.writer.Unlock()
+	increaseGlobalTransactionCount()
+	s.makeMapOperationIfNotExist(globalTransactionCount)
+	s.logger.Infof("Transaction %d starts", globalTransactionCount)
+
+	return &memTx{
+		memStore: s,
+		txID:     globalTransactionCount,
+	}
+}
+
+func (s *memStore) Set(ctx context.Context, key string, value interface{}) error {
 	s.writer.Lock()
 	defer s.writer.Unlock()
 	increaseGlobalTransactionCount()
 	s.setInternal(ctx, key, value, globalTransactionCount)
+	return nil
 }
 
-func (s *memStore) Get(ctx context.Context, key string) interface{} {
+func (s *memStore) Get(ctx context.Context, key string) (interface{}, error) {
 	if !s.checkKeyExist(key) {
-		return nil
+		return nil, appCommon.KeyDoesNotExist
 	}
-	return s.data[key].GetCommitted(ctx)
+	return s.data[key].GetCommitted(ctx), nil
 }
 
 func (s *memStore) Delete(ctx context.Context, key string) error {
@@ -75,115 +84,6 @@ func (s *memStore) makeMapOperationIfNotExist(txID int) {
 	if !exist {
 		s.affectedKeysInTransaction[txID] = operation.NewOperationsKeyStore()
 	}
-}
-
-func (s *memStore) StartTransaction(ctx context.Context) int {
-	s.writer.Lock()
-	defer s.writer.Unlock()
-	increaseGlobalTransactionCount()
-	s.makeMapOperationIfNotExist(globalTransactionCount)
-	s.logger.Infof("Transaction %d starts", globalTransactionCount)
-	return globalTransactionCount
-}
-
-func (s *memStore) AbortTransaction(ctx context.Context, txID int) error {
-	s.writer.Lock()
-	defer s.writer.Unlock()
-
-	if !s.checkTxExist(txID) {
-		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
-		return appCommon.NewTxIDDoesNotExistError(txID)
-	}
-
-	s.logger.Infof("Aborting transaction %d", txID)
-
-	delete(s.affectedKeysInTransaction, txID)
-	s.logger.Infof("Aborted transaction %d successfully", txID)
-	return nil
-}
-
-func (s *memStore) CommitTransaction(ctx context.Context, txID int) error {
-	s.writer.Lock()
-	defer s.writer.Unlock()
-
-	if !s.checkTxExist(txID) {
-		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
-		return appCommon.NewTxIDDoesNotExistError(txID)
-	}
-
-	s.logger.Infof("Transaction %d is being commited...", txID)
-	if err := s.checkIfTransactionCanBeCommited(ctx, txID); err != nil {
-		s.logger.WithContext(ctx).Errorln(err)
-		return err
-	}
-	s.logger.Infof("Applying transaction %d", txID)
-	if err := s.applyTransaction(ctx, txID); err != nil {
-		s.logger.WithContext(ctx).Errorln(err)
-		return err
-	}
-	s.logger.Infof("Transaction %d is successfully committed", txID)
-	delete(s.affectedKeysInTransaction, txID)
-	return nil
-}
-
-func (s *memStore) GetValueForTransaction(ctx context.Context, txID int, key string) (interface{}, error) {
-	if !s.checkTxExist(txID) {
-		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
-		return nil, appCommon.NewTxIDDoesNotExistError(txID)
-	}
-
-	value := s.affectedKeysInTransaction[txID].Get(key)
-	if value != nil {
-		return value, nil
-	}
-
-	if s.checkKeyExist(key) {
-		return s.data[key].GetValueBeforeTransaction(ctx, txID), nil
-	}
-
-	return nil, nil
-}
-
-func (s *memStore) SetValueForTransaction(ctx context.Context, txID int, key string, value interface{}) error {
-	if !s.checkTxExist(txID) {
-		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
-		return appCommon.NewTxIDDoesNotExistError(txID)
-	}
-
-	s.affectedKeysInTransaction[txID].Set(key, value)
-
-	s.logger.Infof("Setting key %s with Value %v for tracsaction %d", key, value, txID)
-	return nil
-}
-
-func (s *memStore) DeleteValueForTransaction(ctx context.Context, txID int, key string) error {
-	if !s.checkTxExist(txID) {
-		s.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(txID))
-		return appCommon.NewTxIDDoesNotExistError(txID)
-	}
-
-	// TODO: first need to check if key has been in transaction before or has been in current transaction
-	if !s.affectedKeysInTransaction[txID].CheckIfKeyExists(key) {
-		if !s.checkKeyExist(key) { // check if the key has been existed before
-			s.logger.WithContext(ctx).Errorln(appCommon.KeyDoesNotExist)
-			return appCommon.KeyDoesNotExist
-		}
-
-		// if it exists then check for if it has been deleted (since we store multiple versions)
-		if s.data[key].GetValueBeforeTransaction(ctx, txID) != nil {
-			s.logger.WithContext(ctx).Errorln(appCommon.KeyDoesNotExist)
-			return appCommon.KeyDoesNotExist
-		}
-	}
-
-	s.logger.Infof("Deleting key %s for transaction %d", key, txID)
-
-	if err := s.affectedKeysInTransaction[txID].Delete(key); err != nil {
-		s.logger.WithContext(ctx).Errorln(err)
-		return err
-	}
-
-	return nil
 }
 
 func (s *memStore) RemoveOldVersionTransaction(ctx context.Context) error {

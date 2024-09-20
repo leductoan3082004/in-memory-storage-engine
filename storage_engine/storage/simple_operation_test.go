@@ -162,7 +162,7 @@ func TestMemStorage_SetGetDelete(t *testing.T) {
 			}
 
 			// Test Get
-			gotValue := storage.Get(ctx, tt.key)
+			gotValue, _ := storage.Get(ctx, tt.key)
 
 			// Use reflect.DeepEqual for comparing complex types like maps
 			if !reflect.DeepEqual(gotValue, tt.expectedGet) {
@@ -177,7 +177,7 @@ func TestMemStorage_SetGetDelete(t *testing.T) {
 				}
 
 				// Test Get after Delete
-				gotValueAfterDelete := storage.Get(ctx, tt.deleteKey)
+				gotValueAfterDelete, _ := storage.Get(ctx, tt.deleteKey)
 				if gotValueAfterDelete != nil {
 					t.Errorf("Expected nil after delete, got %v", gotValueAfterDelete)
 				}
