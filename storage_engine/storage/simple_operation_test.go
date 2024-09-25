@@ -5,6 +5,7 @@ import (
 	"in-memory-storage-engine/appCommon"
 	"reflect"
 	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -191,25 +192,39 @@ func BenchmarkMemStore_SetGetDelete(b *testing.B) {
 	ctx := context.Background()
 	storage := NewMemStore()
 
+	keys := make([]string, 10)
+	for i := 0; i < 10; i++ {
+		keys[i] = "key" + strconv.Itoa(i)
+	}
+
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		key := "key" + strconv.Itoa(i)
-		value := i
+		var wg sync.WaitGroup
 
-		// Benchmark Set operation
-		if err := storage.Set(ctx, key, value); err != nil {
-			b.Fatalf("Set failed: %v", err)
+		for j := 0; j < 10000; j++ {
+			wg.Add(1)
+
+			go func(j int) {
+				defer wg.Done()
+
+				for op := 0; op < 100; op++ {
+					key := keys[op%10]
+					value := i*100 + op
+
+					if err := storage.Set(ctx, key, value); err != nil {
+						b.Fatalf("Set failed: %v", err)
+					}
+
+					if _, err := storage.Get(ctx, key); err != nil {
+					}
+
+					if err := storage.Delete(ctx, key); err != nil {
+					}
+				}
+			}(j)
 		}
 
-		// Benchmark Get operation
-		if _, err := storage.Get(ctx, key); err != nil {
-			b.Fatalf("Get failed: %v", err)
-		}
-
-		// Benchmark Delete operation
-		if err := storage.Delete(ctx, key); err != nil {
-			b.Fatalf("Delete failed: %v", err)
-		}
+		wg.Wait()
 	}
 }

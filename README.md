@@ -57,6 +57,8 @@
 - Now come to the **ABORT**, we just need to remove the transaction along with its snapshot.
 - With **COMMIT**, we will iterate through the key, value snapshot and apply the changes to the main storage. We need to check if the latest version of each key is smaller than the *transaction id* (because we are using *transaction id* for versioning). If one of the keys has the latest version greater than current *transaction id*, this means we can not commit this transaction, because there is another transaction that has committed before that lead to the transaction number increases. At this time we can throw the error to user, and user may make the transaction from the beginning. But there is another approach, we will store all the operations of one transaction and retry it several times before forcing user make it again.
 
+# Something can be improved #
+- We can use binary search to find the latest version that has been committed before version_id (this will reduce the time a lot)
 
 ### For interface ###
 - This will be the library that can be imported into user code and make use of local memory.
@@ -64,12 +66,18 @@
 ### Benchmarking ###
 - Number of concurrent transaction can execute with interaction to only 10 keys.
 
-| number of concurrent transaction | number of tries | average time (s) |
-|----------------------------------|-----------------|------------------|
-| 10                               | 2733            | 0.0004           |
-| 50                               | 517             | 0.002            |
-| 100                              | 210             | 0.006            |
-| 500                              | 38              | 0.03             |
-| 1000                             | 19              | 0.062            |
-| 10000                            | 2               | 0.6363           |
+| number of concurrent transaction | my average time (s) | memgodb average time (s) |
+|----------------------------------|---------------------|--------------------------|
+| 10                               | 0.0004              | 0.002                    |
+| 50                               | 0.002               | 0.009                    |
+| 100                              | 0.006               | 0.02                     |
+| 500                              | 0.03                | 0.09                     |
+| 1000                             | 0.062               | 0.2                      |
+| 10000                            | 0.6363              | 1.8                      |
  
+- Average time when using 10000 concurrent goroutines interact with only 10 keys (each goroutine operate with the keys 100 times)
+
+| my average time (s) | gomemdb average time (s) |
+|---------------------|--------------------------|
+| 0.8                 | 8.2                      |
+the reason behind this gap is that gomemdb can not directly operate with their keys, it has to interact with them throughout a transaction. When we just need a simple read, it still has to create a read transaction to read the value. And that is the thing that makes gomemdb so slow if we just perform some simple operations (because all transactions in gomemdb must execute serialize).
