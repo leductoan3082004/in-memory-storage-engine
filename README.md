@@ -59,5 +59,17 @@
 
 
 ### For interface ###
-- We can make the frontend for user (maybe using the reactjs).
-- We will a CLI for user to interact with our storage using the terminal.
+- This will be the library that can be imported into user code and make use of local memory.
+
+### Benchmarking ###
+- Number of concurrent transaction can execute with interaction to only 10 keys.
+
+| number of concurrent transaction | number of tries | average time (s) |
+|----------------------------------|-----------------|------------------|
+| 10                               | 2733            | 0.0004           |
+| 50                               | 517             | 0.002            |
+| 100                              | 210             | 0.006            |
+| 500                              | 38              | 0.03             |
+| 1000                             | 19              | 0.062            |
+| 10000                            | 2               | 0.6363           |
+ 

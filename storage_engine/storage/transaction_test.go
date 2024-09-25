@@ -2,7 +2,10 @@ package storage
 
 import (
 	"context"
+	"strconv"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -86,4 +89,51 @@ func TestMemStorage_Transactions(t *testing.T) {
 		globalValue, _ := storage.Get(ctx, "key5")
 		assert.Nil(t, globalValue)
 	})
+}
+
+func BenchmarkMemStore_ConcurrentTransactionScaling(b *testing.B) {
+	ctx := context.Background()
+	storage := NewMemStore()
+	keys := make([]string, 10)
+	for i := 0; i < 10; i++ {
+		keys[i] = "key" + strconv.Itoa(i)
+	}
+
+	concurrencyLevels := []int{10, 50, 100, 500, 1000, 10000}
+	numOperationsPerGoroutine := 100
+
+	for _, concurrency := range concurrencyLevels {
+		b.Run("concurrency_"+strconv.Itoa(concurrency), func(b *testing.B) {
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				var wg sync.WaitGroup
+				for j := 0; j < concurrency; j++ {
+					wg.Add(1)
+
+					go func(j int) {
+						defer wg.Done()
+
+						tx := storage.Tx()
+						for op := 0; op < numOperationsPerGoroutine; op++ {
+							key := keys[j%len(keys)]
+							value := time.Now().UnixNano()
+
+							if err := tx.Set(ctx, key, value); err != nil {
+							}
+							if _, err := tx.Get(ctx, key); err != nil {
+							}
+							if err := tx.Delete(ctx, key); err != nil {
+							}
+						}
+
+						if err := tx.Commit(ctx); err != nil {
+						}
+					}(j)
+				}
+
+				wg.Wait()
+			}
+		})
+	}
 }

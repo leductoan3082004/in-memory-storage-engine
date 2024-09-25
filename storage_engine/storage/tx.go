@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"in-memory-storage-engine/appCommon"
+	"sync"
 )
 
 type MemTx interface {
@@ -16,11 +17,12 @@ type MemTx interface {
 type memTx struct {
 	memStore *memStore
 	txID     int
+	rwLock   *sync.RWMutex
 }
 
 func (tx *memTx) Abort(ctx context.Context) error {
-	tx.memStore.writer.Lock()
-	defer tx.memStore.writer.Unlock()
+	tx.memStore.rwMutex.Lock()
+	defer tx.memStore.rwMutex.Unlock()
 
 	if !tx.memStore.checkTxExist(tx.txID) {
 		tx.memStore.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(tx.txID))
@@ -35,8 +37,8 @@ func (tx *memTx) Abort(ctx context.Context) error {
 }
 
 func (tx *memTx) Commit(ctx context.Context) error {
-	tx.memStore.writer.Lock()
-	defer tx.memStore.writer.Unlock()
+	tx.memStore.rwMutex.Lock()
+	defer tx.memStore.rwMutex.Unlock()
 
 	if !tx.memStore.checkTxExist(tx.txID) {
 		tx.memStore.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(tx.txID))
@@ -59,6 +61,9 @@ func (tx *memTx) Commit(ctx context.Context) error {
 }
 
 func (tx *memTx) Set(ctx context.Context, key string, value interface{}) error {
+	tx.memStore.rwMutex.RLock()
+	defer tx.memStore.rwMutex.RUnlock()
+
 	if !tx.memStore.checkTxExist(tx.txID) {
 		tx.memStore.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(tx.txID))
 		return appCommon.NewTxIDDoesNotExistError(tx.txID)
@@ -71,6 +76,9 @@ func (tx *memTx) Set(ctx context.Context, key string, value interface{}) error {
 }
 
 func (tx *memTx) Get(ctx context.Context, key string) (interface{}, error) {
+	tx.memStore.rwMutex.RLock()
+	defer tx.memStore.rwMutex.RUnlock()
+
 	if !tx.memStore.checkTxExist(tx.txID) {
 		tx.memStore.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(tx.txID))
 		return nil, appCommon.NewTxIDDoesNotExistError(tx.txID)
@@ -89,6 +97,9 @@ func (tx *memTx) Get(ctx context.Context, key string) (interface{}, error) {
 }
 
 func (tx *memTx) Delete(ctx context.Context, key string) error {
+	tx.memStore.rwMutex.RLock()
+	defer tx.memStore.rwMutex.RUnlock()
+
 	if !tx.memStore.checkTxExist(tx.txID) {
 		tx.memStore.logger.WithContext(ctx).Errorln(appCommon.NewTxIDDoesNotExistError(tx.txID))
 		return appCommon.NewTxIDDoesNotExistError(tx.txID)

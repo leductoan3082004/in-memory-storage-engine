@@ -23,29 +23,30 @@ var globalTransactionCount = 0
 type memStore struct {
 	data                      map[string]version.VersionManager
 	affectedKeysInTransaction map[int]operation.KeyStore
-	writer                    *sync.Mutex
+	rwMutex                   *sync.RWMutex
 	logger                    *logrus.Logger
 }
 
 func NewMemStore() MemStorage {
 	globalTransactionCount = 0
 	logger := logrus.New()
-	logger.SetLevel(logrus.InfoLevel)
+	logger.SetLevel(logrus.PanicLevel)
 	logger.SetFormatter(&logrus.TextFormatter{
 		ForceColors: true,
 	})
 
 	return &memStore{
 		data:                      make(map[string]version.VersionManager),
-		writer:                    new(sync.Mutex),
+		rwMutex:                   new(sync.RWMutex),
 		affectedKeysInTransaction: make(map[int]operation.KeyStore),
 		logger:                    logger,
 	}
 }
 
 func (s *memStore) Tx() MemTx {
-	s.writer.Lock()
-	defer s.writer.Unlock()
+	s.rwMutex.Lock()
+	defer s.rwMutex.Unlock()
+
 	increaseGlobalTransactionCount()
 	s.makeMapOperationIfNotExist(globalTransactionCount)
 	s.logger.Infof("Transaction %d starts", globalTransactionCount)
@@ -53,18 +54,23 @@ func (s *memStore) Tx() MemTx {
 	return &memTx{
 		memStore: s,
 		txID:     globalTransactionCount,
+		rwLock:   new(sync.RWMutex),
 	}
 }
 
 func (s *memStore) Set(ctx context.Context, key string, value interface{}) error {
-	s.writer.Lock()
-	defer s.writer.Unlock()
+	s.rwMutex.Lock()
+	defer s.rwMutex.Unlock()
+
 	increaseGlobalTransactionCount()
 	s.setInternal(ctx, key, value, globalTransactionCount)
 	return nil
 }
 
 func (s *memStore) Get(ctx context.Context, key string) (interface{}, error) {
+	s.rwMutex.RLock()
+	defer s.rwMutex.RUnlock()
+
 	if !s.checkKeyExist(key) {
 		return nil, appCommon.KeyDoesNotExist
 	}
@@ -72,8 +78,8 @@ func (s *memStore) Get(ctx context.Context, key string) (interface{}, error) {
 }
 
 func (s *memStore) Delete(ctx context.Context, key string) error {
-	s.writer.Lock()
-	defer s.writer.Unlock()
+	s.rwMutex.Lock()
+	defer s.rwMutex.Unlock()
 	increaseGlobalTransactionCount()
 
 	return s.deleteInternal(ctx, key, globalTransactionCount)
@@ -87,8 +93,8 @@ func (s *memStore) makeMapOperationIfNotExist(txID int) {
 }
 
 func (s *memStore) RemoveOldVersionTransaction(ctx context.Context) error {
-	s.writer.Lock()
-	defer s.writer.Unlock()
+	s.rwMutex.Lock()
+	defer s.rwMutex.Unlock()
 
 	for key, _ := range s.data {
 		if err := s.data[key].RemoveOldVersion(ctx); err != nil {

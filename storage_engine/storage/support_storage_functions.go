@@ -30,8 +30,8 @@ func (s *memStore) checkTxExist(txID int) bool {
 }
 
 func (s *memStore) checkTxExistWithLock(txID int) bool {
-	s.writer.Lock()
-	defer s.writer.Unlock()
+	s.rwMutex.Lock()
+	defer s.rwMutex.Unlock()
 	_, exist := s.affectedKeysInTransaction[txID]
 	return exist
 }

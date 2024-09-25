@@ -4,6 +4,7 @@ import (
 	"context"
 	"in-memory-storage-engine/appCommon"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -183,5 +184,32 @@ func TestMemStorage_SetGetDelete(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func BenchmarkMemStore_SetGetDelete(b *testing.B) {
+	ctx := context.Background()
+	storage := NewMemStore()
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		key := "key" + strconv.Itoa(i)
+		value := i
+
+		// Benchmark Set operation
+		if err := storage.Set(ctx, key, value); err != nil {
+			b.Fatalf("Set failed: %v", err)
+		}
+
+		// Benchmark Get operation
+		if _, err := storage.Get(ctx, key); err != nil {
+			b.Fatalf("Get failed: %v", err)
+		}
+
+		// Benchmark Delete operation
+		if err := storage.Delete(ctx, key); err != nil {
+			b.Fatalf("Delete failed: %v", err)
+		}
 	}
 }

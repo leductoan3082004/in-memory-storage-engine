@@ -26,7 +26,7 @@ type Operation struct {
 
 type operationsKeyStore struct {
 	operationStore map[string]Operation
-	writer         *sync.Mutex
+	writer         *sync.RWMutex
 }
 
 func newSetOperation(value interface{}) Operation {
@@ -45,7 +45,7 @@ func newDeleteOperation() Operation {
 func NewOperationsKeyStore() KeyStore {
 	return operationsKeyStore{
 		operationStore: make(map[string]Operation),
-		writer:         new(sync.Mutex),
+		writer:         new(sync.RWMutex),
 	}
 }
 
@@ -90,6 +90,9 @@ func (s operationsKeyStore) GetAllOperation() *map[string]Operation {
 }
 
 func (s operationsKeyStore) Get(key string) interface{} {
+	s.writer.RLock()
+	defer s.writer.RUnlock()
+
 	operation, exist := s.operationStore[key]
 	if !exist || operation.OperationType == DELETE {
 		return nil
