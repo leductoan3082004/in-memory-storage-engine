@@ -59,6 +59,7 @@
 
 # Something can be improved #
 - We can use binary search to find the latest version that has been committed before version_id (this will reduce the time a lot)
+- We should define some error (like NotFoundError, IntervalError, KeyDoesNotExist)...
 
 ### For interface ###
 - This will be the library that can be imported into user code and make use of local memory.
@@ -66,18 +67,29 @@
 ### Benchmarking ###
 - Number of concurrent transaction can execute with interaction to only 10 keys.
 
-| number of concurrent transaction | my average time (s) | memgodb average time (s) |
-|----------------------------------|---------------------|--------------------------|
-| 10                               | 0.0004              | 0.002                    |
-| 50                               | 0.002               | 0.009                    |
-| 100                              | 0.006               | 0.02                     |
-| 500                              | 0.03                | 0.09                     |
-| 1000                             | 0.062               | 0.2                      |
-| 10000                            | 0.6363              | 1.8                      |
- 
-- Average time when using 10000 concurrent goroutines interact with only 10 keys (each goroutine operate with the keys 100 times)
+| number of concurrent transaction | my storage complete time per transaction (s) | memgodb complete time per transaction (s) |
+|----------------------------------|----------------------------------------------|-------------------------------------------|
+| 10                               | 0.0004                                       | 0.002                                     |
+| 50                               | 0.002                                        | 0.009                                     |
+| 100                              | 0.006                                        | 0.02                                      |
+| 500                              | 0.03                                         | 0.09                                      |
+| 1000                             | 0.062                                        | 0.2                                       |
+| 10000                            | 0.6363                                       | 1.8                                       |
 
-| my average time (s) | gomemdb average time (s) |
-|---------------------|--------------------------|
-| 0.8                 | 8.2                      |
+| number of concurrent transaction | average memory allocated (MB) (my storage) | average memory allocated (MB) (gomemdb) |
+|----------------------------------|--------------------------------------------|-----------------------------------------|
+| 10                               | 0.06 MB                                    | 1.5 MB                                  |
+| 50                               | 0.3 MB                                     | 7.8 MB                                  |
+| 100                              | 0.61 MB                                    | 15 MB                                   |
+| 500                              | 3.08 MB                                    | 78 MB                                   |
+| 1000                             | 6.17 MB                                    | 157 MB                                  |
+| 10000                            | 62 MB                                      | N/A                                     |
+
+- Average time and memory when using 10000 concurrent goroutines interact with only 10 keys (each goroutine operate with the keys 100 times)
+
+|                   | my storage engine | gomemdb |
+|-------------------|-------------------|---------|
+| average times     | 0.8s              | 8.2s    |
+| memory allocation | 192MB             | 3.6GB   |
 the reason behind this gap is that gomemdb can not directly operate with their keys, it has to interact with them throughout a transaction. When we just need a simple read, it still has to create a read transaction to read the value. And that is the thing that makes gomemdb so slow if we just perform some simple operations (because all transactions in gomemdb must execute serialize).
+
