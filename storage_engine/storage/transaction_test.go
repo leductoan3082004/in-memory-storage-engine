@@ -92,6 +92,7 @@ func TestMemStorage_Transactions(t *testing.T) {
 }
 
 func BenchmarkMemStore_ConcurrentTransactionScaling(b *testing.B) {
+	b.ReportAllocs()
 	ctx := context.Background()
 	storage := NewMemStore()
 	keys := make([]string, 10)
